@@ -3,10 +3,8 @@ import numpy as np
 import yfinance as yf
 from vnstock3 import Vnstock
 import datetime
+import math
 import fuzzylite as fl
-import sys
-import matplotlib.pyplot as plt
-
 
 
 # step 1: read data(from Yahoo Finance)
@@ -43,24 +41,20 @@ def get_vn_stock_data(symbol, dtype):
     df.drop('week', axis = 1, inplace=True)
     df.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
 
-    return df, df_weekly
-# step 2: Calculate MACD and EMA200
-def calculate_indicators(df):
-    df['ohlc4'] = (df['Close'] + df['Open'] + df['High'] + df['Low'])/4
-    df['close'] = df['Close'].ewm(span = 11, adjust = False).mean()
-    # df['close'] = df['ohlc4'].ewm(span = 9, adjust = False).mean()
-    # Calculate MACD
+def calculate_macd(df):
     df['EMA12'] = df['close'].ewm(span=12, adjust=False).mean()
     df['EMA26'] = df['close'].ewm(span=26, adjust=False).mean()
     df['MACD'] = df['EMA12'] - df['EMA26']
     df['Signal Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
     df['MACD hist'] = (df['MACD'] - df['Signal Line']) / df['close']
     df['MACD histogram'] = df['MACD hist']
+    return df
+
+def filter_macd(df):
     df['decrease 1'] = 0.0
     df['decrease 2'] = 0.0
     df['increase 1'] = 0.0
     df['increase 2'] = 0.0
-    # filter MACD
     for i in range(37, len(df)):
         
         current_histogram = df.iloc[i]['MACD hist']
@@ -103,29 +97,31 @@ def calculate_indicators(df):
                             break
                         df.at[df.index[j], 'MACD histogram'] = 0.5
                         current_histogram = next_histogram
+    return df
 
-    # Calculate RSI (Relative Strength Index)
+def calculate_rsi(df):
     delta = df['close'].diff() 
     gain = ( delta.where(delta > 0, 0)).rolling(window=69).mean()  
     loss = (-delta.where(delta < 0, 0)).rolling(window=69).mean()  
     
     RS = gain / loss
     df['RSI'] = 100 - (100 / (1 + RS))  # Công thức tính RSI
-    
-    # Tính toán đường MA 50 ngày và MA 200 ngày
-    df['EMA50'] = df['close'].ewm(span=47, adjust=False).mean()
+    return df
+
+def calculate_golden_cross(df):
+    df['EMA47'] = df['close'].ewm(span=47, adjust=False).mean()
     df['EMA200'] = df['close'].ewm(span=200, adjust=False).mean()
 
-    df['EMA subtract'] = df['EMA50'] - df['EMA200']
+    df['EMA subtract'] = df['EMA47'] - df['EMA200']
     
     # Tạo cột emacross, khởi tạo bằng 0
     df['emacross'] = 0
 
-    # Xác định khi EMA50 cắt qua EMA200 (từ dưới lên hoặc từ trên xuống)
-    cross_up = (df['EMA50'].shift(1) < df['EMA200'].shift(1)) & (df['EMA50'] > df['EMA200'])
-    cross_down = (df['EMA50'].shift(1) > df['EMA200'].shift(1)) & (df['EMA50'] < df['EMA200'])
+    # Xác định khi EMA47 cắt qua EMA200 (từ dưới lên hoặc từ trên xuống)
+    cross_up = (df['EMA47'].shift(1) < df['EMA200'].shift(1)) & (df['EMA47'] > df['EMA200'])
+    cross_down = (df['EMA47'].shift(1) > df['EMA200'].shift(1)) & (df['EMA47'] < df['EMA200'])
     
-    # Khi EMA50 cắt EMA200, thiết lập giá trị emacross là 30
+    # Khi EMA47 cắt EMA200, thiết lập giá trị emacross là 30
     df.loc[cross_up | cross_down, 'emacross'] = 30
 
     if len(df) < 201:
@@ -139,7 +135,9 @@ def calculate_indicators(df):
             continue  # Nếu emacross đã bằng 0, không thay đổi gì nữa
         elif df.iloc[i, df.columns.get_loc('emacross')] > 0:
             df.iloc[i, df.columns.get_loc('emacross')] = df.iloc[i-1, df.columns.get_loc('emacross')] - 1
+    return df
 
+def identify_trend(df):
     # Xác định xu hướng (Trend)
     df['Trend'] = None
     df.loc[df['emacross'] > 0, 'Trend'] = 0
@@ -170,7 +168,19 @@ def calculate_indicators(df):
 
         if trend_active:
             df.iloc[i, df.columns.get_loc('Trend')] = trend_active
+    return df
 
+def calculate_indicators(df):
+    df['close'] = df['Close'].ewm(span = 11, adjust = False).mean()
+
+    df = calculate_macd(df)
+    df = filter_macd(df)
+
+    df = calculate_rsi(df)
+    
+    df = calculate_golden_cross(df)
+    df = identify_trend(df)
+    
     aboveEMA200 = 0
     for i in range(200, len(df)):
         if df['close'].iloc[i] > df['EMA200'].iloc[i]:
@@ -284,7 +294,8 @@ def apply_fuzzy_logic(df):
     df['Position'] = position
     return df
 
-def testing(df, percent_above_EMA200):
+
+def testing_for_test_all(df, percent_above_EMA200):
     initial_budget = 1000000
     total_budget = initial_budget
     holding = False  # Cờ để kiểm tra xem đang giữ vị thế hay không
@@ -295,13 +306,20 @@ def testing(df, percent_above_EMA200):
     peak_price = 0  # Đỉnh giá bán trước đó
     cooldown_period = 0  # Khoảng thời gian chờ sau khi bán (nếu lợi nhuận > 70%)
     cumulative_holding_period = 0  # Tổng thời gian giữ vị thế
+    total_trade = 0
+    total_win = 0
+    longest_win_streak = 0
+    longest_loss_streak = 0
+    last_is_win = False
+    win_streak = 0
+    loss_streak = 0
+    biggest_win = 0.0 
+    biggest_loss = 0.0
     just_touch_stoploss = False
     stoplossPrice = 0.0
-    total_win = 0
-    total_trade = 0
     if percent_above_EMA200 < 0.9:
 
-        for i in range(len(df)):
+        for i in range(200, len(df)):
             if cooldown_period > 0:  # Đang trong giai đoạn chờ
                 # Nếu giá vượt đỉnh, cho phép giao dịch lại
                 if df['Close'].iloc[i] > peak_price and df['Decision'].iloc[i] >= 0.6:
@@ -312,6 +330,8 @@ def testing(df, percent_above_EMA200):
                     df.at[df.index[i], 'Decision'] = 0.51  # Cập nhật cột Decision
                     cooldown_period -= 1
                     continue  # Bỏ qua giao dịch trong giai đoạn chờ
+            
+            # Nếu hết coolldown_period, thì reset peak price
             if cooldown_period == 0: 
                 peak_price = 0.0
             # Nếu vừa chạm stop loss và gặp lệnh không phải lệnh buy thì coi như là trước đó chưa chạm stoploss
@@ -321,12 +341,10 @@ def testing(df, percent_above_EMA200):
 
             # Mua khi không giữ vị thế và có tín hiệu mua và không ở trong giai đoạn sau khi chạm stop loss
             if not holding and df['Decision'].iloc[i] >= 0.6 and not just_touch_stoploss:
-                total_trade += 1
                 buy_price = df['Close'].iloc[i]
                 stoplossPrice = 0.9 * buy_price
                 buy_day.append(i)
                 holding = True  # Đặt cờ giữ vị thế 
-                print(f'buy at {i}: {df.index[i]}, with price: {buy_price}') 
 
             # Bán khi đang giữ vị thế và có tín hiệu bán hoặc khi giá giảm dưới đỉnh trước hoặc giá chạm stoploss
             elif holding and (df['Decision'].iloc[i] <= 0.3 or df['Close'].iloc[i] < peak_price or i == len(df) - 1 or df['Close'].iloc[i] < stoplossPrice):
@@ -340,10 +358,27 @@ def testing(df, percent_above_EMA200):
                     just_touch_stoploss = True
                     
                 profit_percent = (account_change_rate - 1) * 100
-                if profit_percent > 0: 
-                    total_win += 1
                 total_budget *= account_change_rate
-                print(f'sell at {i}: {df.index[i]}, with price: {sell_price}') 
+                total_trade += 1
+                if profit_percent > 0:
+                    if profit_percent > biggest_win:
+                        biggest_win = profit_percent
+                    total_win += 1
+                    last_is_win = True
+                    loss_streak = 0
+                else: 
+                    if profit_percent < biggest_loss:
+                        biggest_loss = profit_percent
+                    win_streak = 0
+                    last_is_win = False
+                if last_is_win:
+                    win_streak += 1
+                    if longest_win_streak < win_streak:
+                        longest_win_streak = win_streak 
+                else:
+                    loss_streak += 1
+                    if longest_loss_streak < loss_streak:
+                        longest_loss_streak = loss_streak
                 holding = False  # Đặt cờ ngừng giữ vị thế
 
                 # Tính tổng thời gian giữ vị thế (cộng với các vị thế trước nếu giá vượt đỉnh)
@@ -357,22 +392,19 @@ def testing(df, percent_above_EMA200):
                 cumulative_holding_period = 0
 
     else: 
-        for i in range(len(df)):
+        for i in range(200, len(df)):
             # Nếu vừa chạm stop loss và gặp lệnh không phải lệnh buy thì coi như là trước đó chưa chạm stoploss
             # Nếu vừa chạm stop loss và tăng lại lên trên stop loss thì coi như trước đó chưa chạm stop loss
             if just_touch_stoploss and (df['Decision'].iloc[i] < 0.6 or df['Close'].iloc[i] > stoplossPrice) :
                 just_touch_stoploss = False
             
             # Mua khi không giữ vị thế và có tín hiệu mua và không ở trong giai đoạn sau khi chạm stop loss
-            if not holding and df['Decision'].iloc[i] >= 0.6 and not just_touch_stoploss: 
-                total_trade += 1
+            if not holding and df['Decision'].iloc[i] >= 0.6 and not just_touch_stoploss:  # Buy condition
                 buy_price = df['Close'].iloc[i]
                 stoplossPrice = 0.9 * buy_price
                 buy_day.append(i)
                 holding = True  # Set holding flag to True after buying
-                print(f'buy at {i}: {df.index[i]}, with price: {buy_price}') 
-
-                
+            
             # Bán khi đang giữ vị thế và có tín hiệu bán hoặc giá chạm stoploss
             elif holding and (df['Decision'].iloc[i] <= 0.3 or i == len(df) - 1 or df['Close'].iloc[i] < stoplossPrice): 
                 sell_price = df['Close'].iloc[i]
@@ -385,16 +417,31 @@ def testing(df, percent_above_EMA200):
                     just_touch_stoploss = True
                     
                 profit_percent = (account_change_rate - 1) * 100
-                if profit_percent > 0:
-                    total_win+= 1
                 total_budget *= account_change_rate
-                print(f'sell at {i}: {df.index[i]}, with price: {sell_price}') 
+                total_trade += 1
+                if profit_percent > 0:
+                    if profit_percent > biggest_win:
+                        biggest_win = profit_percent
+                    total_win += 1
+                    last_is_win = True
+                    loss_streak = 0
+                else: 
+                    if profit_percent < biggest_loss:
+                        biggest_loss = profit_percent
+                    win_streak = 0
+                    last_is_win = False
+                if last_is_win:
+                    win_streak += 1
+                    if longest_win_streak < win_streak:
+                        longest_win_streak = win_streak 
+                else:
+                    loss_streak += 1
+                    if longest_loss_streak < loss_streak:
+                        longest_loss_streak = loss_streak
                 holding = False  # Đặt cờ ngừng giữ vị thế
     win_rate = (total_win / total_trade) * 100
-    print(f"win rate is: {win_rate}")
     total_profit_percent = ((total_budget - initial_budget) / initial_budget) * 100
-    return total_budget, total_profit_percent
-
+    return total_budget, total_profit_percent, win_rate, longest_loss_streak, longest_win_streak, total_trade, biggest_win, biggest_loss
 def filter(df):
     # filter by trend
     for i in range (0, len(df)):
@@ -411,19 +458,98 @@ def filter(df):
             df.iloc[i, df.columns.get_loc('Position')] = 'buy'
     
     return df
-def get_data():
-    decide = input('1. For Vietnam stock/index,\n2. For foreign stock/ index\n')
-    if decide == '1':
-        symbol = input("enter stock symbol: ")
-        symbol = symbol.upper()
-        dtype = 'stock'
-        data = get_vn_stock_data(symbol, dtype)
-    elif decide == '2': 
-        symbol = input("enter stock/index symbol: ")
-        symbol = symbol.upper()
-        data = get_stock_data(symbol)
-    df = data[1]
-    return df
+
+def test_all():
+    # stock_codes = [
+    # "TCH", "TLG", "TPB", "VCB", "VCG", "VCI", "VGC", "VHC", "VHM", "VIB",
+    # "VIC", "VIX", "VJC", "VND", "VNM", "VPB", "VPI", "VRE", "VSH",
+    # "SHB", "SIP", "SJS", "SSB", "SSI", "STB", "SZC", "TCB",
+    # "NLG", "NT2", "NVL", "OCB", "PAN", "PC1", "PDR", "PHR", "PLX", "PNJ",
+    # "POW", "PPC", "PTB", "PVD", "PVT", "REE", "SAB", "SBT", "SCS",
+    # "HDB", "HDC", "HDG", "HHV", "HPG", "HSG", "HT1", "IMP", "KBC", "KDC",
+    # "KDH", "KOS", "LPB", "MBB", "MSB", "MSN", "MWG", "NKG",
+    # "DBC", "DCM", "DGC", "DGW", "DIG", "DPM", "DXG", "DXS", "EIB", "EVF",
+    # "FPT", "FRT", "FTS", "GAS", "GEX", "GMD", "GVR", "HAG", "HCM"
+    # ]
+    stock_codes = [
+    "TPB", "VCB", "VCI", "VGC", "VHC", "VIB",
+    "VND", "VPB", "VPI", "VSH",
+    "NLG", "NT2", "PC1", "PHR", "PNJ",
+    "PTB", "PVT", "REE", "SCS",
+    "HDB", "HDC", "HDG", "HPG", "IMP",
+    "KDH", "KOS", "LPB", "MBB", "MWG",
+    "DBC", "DGC", "DGW", 
+    "FPT", "FRT", "FTS", "GAS", "GEX", "GMD", "HCM"
+    ]
+    # stock_codes = [ "FTS", "DGW", "DGC", "LPB", "VND", "FRT", "HPG", "PHR", "FPT", "HCM"]
+    number_test  = 0
+    avg_profit_all = 0.0
+    total_trade_times = 0
+    win_times = 0
+    b_win = 0
+    b_loss = 0
+    higher_than_30 = {}
+    higher_than_20 = {}
+    lower_than_0 = {}
+    for i in range(0, len(stock_codes)):
+        data = get_vn_stock_data(stock_codes[i], 'stock')
+        df = data[1]
+        if (len(df) < 55 * 5):
+            print("less than 5 years: ", stock_codes[i])
+            continue
+        begin_date = df.index[200]
+        stop_date = df.index[len(df) - 1]
+        time = stop_date - begin_date
+        years = time.days / 365
+        df, percent_aboveEMA200 = calculate_indicators(df)
+        if percent_aboveEMA200 < 0.5:
+            print("Highly recommend not buy this stock: ", stock_codes[i])
+            continue
+        elif percent_aboveEMA200 < 0.8: 
+            print("Not recommend to buy this stock: ", stock_codes[i])
+            continue
+        number_test += 1
+        df = apply_fuzzy_logic(df)
+        df = filter(df)
+        total_account, profit_percent, win_rate, longest_loss_streak, longest_win_streak, total_trade, biggest_win, biggest_loss = testing_for_test_all(df, percent_aboveEMA200)
+        if biggest_loss < b_loss:
+            b_loss = biggest_loss
+        if biggest_win > b_win:
+            b_win = biggest_win
+        total_trade_times += total_trade
+        win_times += total_trade * win_rate
+        avg_profit = (math.pow(profit_percent/100 + 1, 1/years) - 1) * 100
+        if avg_profit > 30:
+            higher_than_30[stock_codes[i]] = avg_profit
+        elif avg_profit > 20:
+            higher_than_20[stock_codes[i]] = avg_profit
+        elif avg_profit < 0:
+            lower_than_0[stock_codes[i]] = avg_profit
+
+        avg_profit_all = (avg_profit_all * (number_test - 1) + avg_profit)/ number_test
+        print("initial account = 1000000, total account after testing", stock_codes[i], round(years, 1),  "years is", total_account, "profit percent =", round(profit_percent, 2), "%", 'average profit each year: ', round(avg_profit, 2), "%")
+        print ('win rate: ', round(win_rate, 2), 'total trade times: ', total_trade, 'longest win streak: ', longest_win_streak, 'longest loss treak: ', longest_loss_streak, '\n')
+    higher_than_30 = dict(sorted(higher_than_30.items(), key=lambda item: item[1], reverse=True))
+    higher_than_20 = dict(sorted(higher_than_20.items(), key=lambda item: item[1], reverse=True))
+    lower_than_0 = dict(sorted(lower_than_0.items(), key=lambda item: item[1], reverse=True))
+    print('average profit per year after testing ', number_test ,' stocks is: ', round(avg_profit_all, 2), ' %')
+    print('average win rate is: ', round(win_times / total_trade_times, 2) , ' %,  biggest win is: ', round(b_win, 2), '%, biggest loss is: ', round(b_loss, 2) , ' %')
+    
+    print("stocks has average profit higher than 30% each year: ")
+    for key, value in higher_than_30.items():
+        print(f"{key:<10} : {value:.2f}")
+
+    print("stocks has average profit higher than 20% each year: ")
+    for key, value in higher_than_20.items():
+        print(f"{key:<10} : {value:.2f}")
+
+    print("stocks has average profit lower than 0 % each year: ")
+    for key, value in lower_than_0.items():
+        print(f"{key:<10} : {value:.2f}")
+        
+
+        
+
 # step 5: Run Program   
 if __name__ == "__main__":
     print('========== Securities analysis program ==========')
@@ -432,51 +558,5 @@ if __name__ == "__main__":
     print("2. Wait for the trade to close before considering new buy signals.")
     print('3. Sell at the first sell signal')
     print('4. Do nothing when ecounter hold signal\n\n')
-    df = get_data()
-    df, percent_aboveEMA200 = calculate_indicators(df)
-    if percent_aboveEMA200 < 0.5:
-        print("Highly recommend not buy this stock")
-        sys.exit()
-    elif percent_aboveEMA200 < 0.65: 
-        print("Not recommend to buy this stock")
-        sys.exit()
-    df = apply_fuzzy_logic(df)
-    df = filter(df)
-    total_account, profit_percent = testing(df, percent_aboveEMA200)
-    print("initial account = 1000000, total account after testing = ", total_account, "profit percent =", profit_percent, "%")
-    input()
-    pd.set_option('display.max_rows', None)
-    # print(df['Decision'])
-    # Define the colors
-    colors = {
-        'sell': 'red',
-        'hold': 'gray',
-        'buy': 'green',
-    }
-
-    # Create a color column based on the Position column
-    df['Color'] = df['Position'].map(colors)
-
-    # Create subplots for the main chart and the histogram
-    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(14, 10), gridspec_kw={'height_ratios': [3, 1, 1]})
-
-    # Plot the price and EMA200 on ax1
-    ax1.plot(df.index, df['Close'], label='Close Price')
-    ax1.plot(df.index, df['EMA50'], label='EMA50')
-    ax1.plot(df.index, df['EMA200'], label='EMA200')
-
-    scatter = ax1.scatter(df.index, df['Close'], c=df['Color'], s=10, label='Decision')
-    ax1.legend()
-
-    # Plot the MACD on ax2
-    ax2.plot(df.index, df['MACD'], label='MACD')
-    ax2.plot(df.index, df['Signal Line'], label='Signal Line')
-    ax2.bar(df.index, df['MACD histogram'], width = 1, label='MACD Histogram', color='green', edgecolor = 'green')
-    ax2.legend()
-
-    # Create histogram on ax3
-    ax3.bar(df.index, df['Decision'],width = 1, color=df['Color'], edgecolor = df['Color'])
-    # ax3.set_yticks([])  # Remove y-axis ticks for the histogram
-
-    # Show plot
-    plt.show()
+    test_all()
+    
