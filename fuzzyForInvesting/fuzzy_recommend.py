@@ -312,6 +312,111 @@ def filter(df):
             df.iloc[i, df.columns.get_loc('Position')] = 'buy'
     
     return df
+def testing(df, percent_above_EMA200):
+    holding = False  # Cờ để kiểm tra xem đang giữ vị thế hay không
+    sell_price = 0.0
+    buy_price = 0.0
+    buy_day = []
+    sell_day = []
+    peak_price = 0  # Đỉnh giá bán trước đó
+    cooldown_period = 0  # Khoảng thời gian chờ sau khi bán (nếu lợi nhuận > 70%)
+    cumulative_holding_period = 0  # Tổng thời gian giữ vị thế
+    just_touch_stoploss = False
+    stoplossPrice = 0.0
+    if percent_above_EMA200 < 0.9:
+
+        for i in range(200, len(df)):
+            
+            if cooldown_period > 0:  # Đang trong giai đoạn chờ
+                # Nếu giá vượt đỉnh, cho phép giao dịch lại
+                if df['Close'].iloc[i] > peak_price and df['Decision'].iloc[i] >= 0.6:
+                    cumulative_holding_period += cooldown_period  # Cộng thời gian giữ vị thế trước
+                    cooldown_period = 0  # Kết thúc giai đoạn chờ
+                else:
+                    df.at[df.index[i], 'Position'] = 'hold'  # Cập nhật cột Position
+                    df.at[df.index[i], 'Decision'] = 0.51  # Cập nhật cột Decision
+                    cooldown_period -= 1
+                    continue  # Bỏ qua giao dịch trong giai đoạn chờ
+            
+            # Nếu hết coolldown_period, thì reset peak price
+            if cooldown_period == 0: 
+                peak_price = 0.0
+            # Nếu vừa chạm stop loss và gặp lệnh không phải lệnh buy thì coi như là trước đó chưa chạm stoploss
+            # Nếu vừa chạm stop loss và tăng lại lên trên stop loss thì coi như trước đó chưa chạm stop loss
+            if just_touch_stoploss and (df['Decision'].iloc[i] < 0.6 or df['Close'].iloc[i] > stoplossPrice) :
+                just_touch_stoploss = False
+
+            if just_touch_stoploss:
+                df.at[df.index[i], 'Position'] = 'hold'  # Cập nhật cột Position
+                df.at[df.index[i], 'Decision'] = 0.51  # Cập nhật cột Decision
+                continue
+
+            # Mua khi không giữ vị thế và có tín hiệu mua và không ở trong giai đoạn sau khi chạm stop loss
+            if not holding and df['Decision'].iloc[i] >= 0.6 and not just_touch_stoploss:
+                buy_price = df['Close'].iloc[i]
+                stoplossPrice = 0.9 * buy_price
+                buy_day.append(i)
+                holding = True  # Đặt cờ giữ vị thế 
+
+            # Bán khi đang giữ vị thế và có tín hiệu bán hoặc khi giá giảm dưới đỉnh trước hoặc giá chạm stoploss
+            elif holding and (df['Decision'].iloc[i] <= 0.3 or df['Close'].iloc[i] < peak_price or df['Close'].iloc[i] < stoplossPrice):
+                sell_price = df['Close'].iloc[i]
+                sell_day.append(i)
+                df.at[df.index[i], 'Position'] = 'sell'  # Cập nhật cột Position
+                df.at[df.index[i], 'Decision'] = 0.2 # Cập nhật cột Decision
+
+                # Tính toán lợi nhuận
+                account_change_rate = sell_price / buy_price
+                if df['Close'].iloc[i] < stoplossPrice:
+                    account_change_rate = 0.9
+                    just_touch_stoploss = True
+                holding = False  # Đặt cờ ngừng giữ vị thế
+
+                # Tính tổng thời gian giữ vị thế (cộng với các vị thế trước nếu giá vượt đỉnh)
+                holding_period = sell_day[-1] - buy_day[-1] + cumulative_holding_period
+                account_change_rate = sell_price / buy_price
+                profit_percent = (account_change_rate - 1) * 100
+                # Nếu lợi nhuận > 70%, hoặc vừa mua thêm sau khi giá tăng quá 70%, đặt cooldown period
+                if profit_percent > 70 or cumulative_holding_period > 0:
+                    cooldown_period = min(holding_period, 60) 
+                    peak_price = sell_price  # Đỉnh giá bán là giá bán hiện tại
+
+                # Reset thời gian giữ vị thế tích lũy
+                cumulative_holding_period = 0
+
+    else: 
+        for i in range(200, len(df)):
+            # Nếu vừa chạm stop loss và gặp lệnh không phải lệnh buy thì coi như là trước đó chưa chạm stoploss
+            # Nếu vừa chạm stop loss và tăng lại lên trên stop loss thì coi như trước đó chưa chạm stop loss
+            if just_touch_stoploss and (df['Decision'].iloc[i] < 0.6 or df['Close'].iloc[i] > stoplossPrice) :
+                just_touch_stoploss = False
+
+            if just_touch_stoploss:
+                df.at[df.index[i], 'Position'] = 'hold'  # Cập nhật cột Position
+                df.at[df.index[i], 'Decision'] = 0.51  # Cập nhật cột Decision
+                continue
+            
+            # Mua khi không giữ vị thế và có tín hiệu mua và không ở trong giai đoạn sau khi chạm stop loss
+            if not holding and df['Decision'].iloc[i] >= 0.6 and not just_touch_stoploss:  # Buy condition
+                buy_price = df['Close'].iloc[i]
+                stoplossPrice = 0.9 * buy_price
+                buy_day.append(i)
+                holding = True  # Set holding flag to True after buying
+            
+            # Bán khi đang giữ vị thế và có tín hiệu bán hoặc giá chạm stoploss
+            elif holding and (df['Decision'].iloc[i] <= 0.3 or df['Close'].iloc[i] < stoplossPrice): 
+                sell_price = df['Close'].iloc[i]
+                df.at[df.index[i], 'Position'] = 'sell'  # Cập nhật cột Position
+                df.at[df.index[i], 'Decision'] = 0.2 # Cập nhật cột Decision
+                sell_day.append(i)
+                
+                # Tính toán lợi nhuận
+                account_change_rate = sell_price / buy_price
+                if df['Close'].iloc[i] < stoplossPrice:
+                    account_change_rate = 0.9
+                    just_touch_stoploss = True
+                holding = False  # Đặt cờ ngừng giữ vị thế
+    return df
 
 def test_all():
     stock_codes = ['FTS', 'SIP', 'DGW', 'HTG', 'DGC', 'TV2', 'LPB', 'SGR', 'THG', 'FRT', 'ADP',
@@ -324,7 +429,12 @@ def test_all():
         df, percent_aboveEMA200 = calculate_indicators(df)
         df = apply_fuzzy_logic(df)
         df = filter(df)
-        print(f"Decision for {stock_codes[i]} at {df.index[len(df) - 1]}: {df['Position'].iloc[len(df) - 1]}")
+        df = testing(df, percent_aboveEMA200)
+        for j in range(len(df) - 2, 0, -1):
+            if df['Position'].iloc[j] != df['Position'].iloc[len(df) - 1]:
+                before = df['Position'].iloc[j]
+                break
+        print(f"Decision for {stock_codes[i]} at {df.index[len(df) - 1]} is: {df['Position'].iloc[len(df) - 1]} (after {before} and {len(df) - 2 - j} {df['Position'].iloc[len(df) - 1]} decision)")
 
 # step 5: Run Program   
 if __name__ == "__main__":
