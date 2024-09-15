@@ -23,7 +23,7 @@ def get_stock_data(symbol):
     return df, df_weekly
 
 def get_vn_stock_data(symbol, dtype):
-    stock = Vnstock().stock(symbol=symbol, source='VCI')
+    stock = Vnstock(source="VCI", show_log=False).stock(symbol=symbol, source='VCI')
     df = stock.quote.history(start = "2000-08-08", end = str(datetime.date.today()))
     # df = vn.stock_historical_data(symbol, start_date="2000-08-08", end_date = str(datetime.date.today()), resolution='1D', type=dtype)
     df['time'] = pd.to_datetime(df['time'])
@@ -40,6 +40,7 @@ def get_vn_stock_data(symbol, dtype):
     df_weekly.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
     df.drop('week', axis = 1, inplace=True)
     df.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+    return df, df_weekly
 
 def calculate_macd(df):
     df['EMA12'] = df['close'].ewm(span=12, adjust=False).mean()
@@ -210,6 +211,7 @@ def create_fuzzy_system():
                 fl.Trapezoid("low", 0.0, 0.0, 40.0, 40.0),
                 fl.Trapezoid("medium", 40.0, 40.0, 60.0, 60.0),
                 fl.Trapezoid("high", 60.0, 60.0, 100.0, 100.0)
+
             ]),
             fl.InputVariable(
             name="trend",
@@ -460,31 +462,19 @@ def filter(df):
     return df
 
 def test_all():
-    # stock_codes = [
-    # "TCH", "TLG", "TPB", "VCB", "VCG", "VCI", "VGC", "VHC", "VHM", "VIB",
-    # "VIC", "VIX", "VJC", "VND", "VNM", "VPB", "VPI", "VRE", "VSH",
-    # "SHB", "SIP", "SJS", "SSB", "SSI", "STB", "SZC", "TCB",
-    # "NLG", "NT2", "NVL", "OCB", "PAN", "PC1", "PDR", "PHR", "PLX", "PNJ",
-    # "POW", "PPC", "PTB", "PVD", "PVT", "REE", "SAB", "SBT", "SCS",
-    # "HDB", "HDC", "HDG", "HHV", "HPG", "HSG", "HT1", "IMP", "KBC", "KDC",
-    # "KDH", "KOS", "LPB", "MBB", "MSB", "MSN", "MWG", "NKG",
-    # "DBC", "DCM", "DGC", "DGW", "DIG", "DPM", "DXG", "DXS", "EIB", "EVF",
-    # "FPT", "FRT", "FTS", "GAS", "GEX", "GMD", "GVR", "HAG", "HCM"
-    # ]
-    stock_codes = [
-    "TPB", "VCB", "VCI", "VGC", "VHC", "VIB",
-    "VND", "VPB", "VPI", "VSH",
-    "NLG", "NT2", "PC1", "PHR", "PNJ",
-    "PTB", "PVT", "REE", "SCS",
-    "HDB", "HDC", "HDG", "HPG", "IMP",
-    "KDH", "KOS", "LPB", "MBB", "MWG",
-    "DBC", "DGC", "DGW", 
-    "FPT", "FRT", "FTS", "GAS", "GEX", "GMD", "HCM"
-    ]
-    # stock_codes = [ "FTS", "DGW", "DGC", "LPB", "VND", "FRT", "HPG", "PHR", "FPT", "HCM"]
+    stock = Vnstock(source="VCI", show_log=False).stock(symbol='ACB', source='VCI')
+    stock_codes = stock.listing.symbols_by_group('HOSE')
+
+    stock_codes = ['FTS', 'SIP', 'DGW', 'HTG', 'DGC', 'TV2', 'LPB', 'SGR', 'THG', 'FRT', 'ADP',
+                   'PDN', 'DPG', 'VCI', 'HPG', 'BSI', 'VPI', 'REE', 'PTB', 'NLG', 'VIB', 'HCM',
+                   'PNJ', 'NT2', 'PVP', 'TMP', 'HNA', 'DHC', 'MBB', 'VND', 'VHC', 'FPT', 'LBM',
+                   'TVS']
     number_test  = 0
     avg_profit_all = 0.0
+    profit_percent_per_trade_all = 0.0
+    total_year = 0.0
     total_trade_times = 0
+    total_account_all = 1
     win_times = 0
     b_win = 0
     b_loss = 0
@@ -503,10 +493,10 @@ def test_all():
         years = time.days / 365
         df, percent_aboveEMA200 = calculate_indicators(df)
         if percent_aboveEMA200 < 0.5:
-            print("Highly recommend not buy this stock: ", stock_codes[i])
+            print(f"Highly recommend not buy this stock: {stock_codes[i]}, percent above EMA200: {percent_aboveEMA200:.2f}")
             continue
         elif percent_aboveEMA200 < 0.8: 
-            print("Not recommend to buy this stock: ", stock_codes[i])
+            print(f"Not recommend to buy this stock: {stock_codes[i]}, percent above EMA200 {percent_aboveEMA200:.2f}")
             continue
         number_test += 1
         df = apply_fuzzy_logic(df)
@@ -526,13 +516,18 @@ def test_all():
         elif avg_profit < 0:
             lower_than_0[stock_codes[i]] = avg_profit
 
-        avg_profit_all = (avg_profit_all * (number_test - 1) + avg_profit)/ number_test
+        total_account_all = total_account_all * (total_account / 1000000)
+        total_year += years
         print("initial account = 1000000, total account after testing", stock_codes[i], round(years, 1),  "years is", total_account, "profit percent =", round(profit_percent, 2), "%", 'average profit each year: ', round(avg_profit, 2), "%")
         print ('win rate: ', round(win_rate, 2), 'total trade times: ', total_trade, 'longest win streak: ', longest_win_streak, 'longest loss treak: ', longest_loss_streak, '\n')
+    print(f"total profit: {total_account_all}, total year: {total_year}")
+    avg_profit_all = (math.pow(total_account_all , 1/total_year) - 1) * 100
+    profit_percent_per_trade_all = (math.pow(total_account_all , 1/total_trade_times) - 1) * 100
     higher_than_30 = dict(sorted(higher_than_30.items(), key=lambda item: item[1], reverse=True))
     higher_than_20 = dict(sorted(higher_than_20.items(), key=lambda item: item[1], reverse=True))
     lower_than_0 = dict(sorted(lower_than_0.items(), key=lambda item: item[1], reverse=True))
     print('average profit per year after testing ', number_test ,' stocks is: ', round(avg_profit_all, 2), ' %')
+    print('average profit per trade after testing ', number_test ,' stocks is: ', round(profit_percent_per_trade_all, 2), ' %')
     print('average win rate is: ', round(win_times / total_trade_times, 2) , ' %,  biggest win is: ', round(b_win, 2), '%, biggest loss is: ', round(b_loss, 2) , ' %')
     
     print("stocks has average profit higher than 30% each year: ")
