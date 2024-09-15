@@ -1,26 +1,9 @@
 import pandas as pd
 import numpy as np
-import yfinance as yf
 from vnstock3 import Vnstock
 import datetime
-import math
 import fuzzylite as fl
 
-
-# step 1: read data(from Yahoo Finance)
-def get_stock_data(symbol):
-    df = yf.download(symbol, start="2000-01-01", end=str(datetime.date.today()))
-    df['Week'] = df.index.to_period('W').start_time
-    # week aggression
-    df_weekly = df.groupby('Week').agg({
-        'Open': 'first',
-        'High': 'max',
-        'Low': 'min',
-        'Close': 'last',
-        'Volume': 'sum',
-    })
-    df_weekly.rename(columns={'Week': 'Date'}, inplace=True)    
-    return df, df_weekly
 
 def get_vn_stock_data(symbol, dtype):
     stock = Vnstock(source="VCI", show_log=False).stock(symbol=symbol, source='VCI')
@@ -423,6 +406,7 @@ def test_all():
                    'PDN', 'DPG', 'VCI', 'HPG', 'BSI', 'VPI', 'REE', 'PTB', 'NLG', 'VIB', 'HCM',
                    'PNJ', 'NT2', 'PVP', 'TMP', 'HNA', 'DHC', 'MBB', 'VND', 'VHC', 'FPT', 'LBM',
                    'TVS']
+    print("Fuzzy system result: \n")
     for i in range(0, len(stock_codes)):
         data = get_vn_stock_data(stock_codes[i], 'stock')
         df = data[1]
@@ -434,7 +418,7 @@ def test_all():
             if df['Position'].iloc[j] != df['Position'].iloc[len(df) - 1]:
                 before = df['Position'].iloc[j]
                 break
-        print(f"Decision for {stock_codes[i]} at {df.index[len(df) - 1]} is: {df['Position'].iloc[len(df) - 1]} (after {before} and {len(df) - 2 - j} {df['Position'].iloc[len(df) - 1]} decision)")
+        print(f"{i + 1}. Decision for {stock_codes[i]} at {df.index[len(df) - 1]} is: {df['Position'].iloc[len(df) - 1]} (after {before} and {len(df) - 2 - j} {df['Position'].iloc[len(df) - 1]} decision)")
 
 # step 5: Run Program   
 if __name__ == "__main__":
