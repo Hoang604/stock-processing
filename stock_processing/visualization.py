@@ -566,7 +566,7 @@ class BankComparision(Comparision):
         save_fig(fig, self.ticker, name)
         #fig.show()
 
-def plot_all_bank(ticker):
+def plot_all_for_bank(ticker):
     instance = BankVisualization(ticker)
     instance.balance_sheet()
     instance.income_statement()
@@ -580,7 +580,7 @@ def plot_all_bank(ticker):
     print(f'done {ticker}............')
 
 
-def plot_all_normal_company(ticker):
+def plot_all_for_company(ticker):
     instance = CompanyVisualization(ticker)
     instance.cash_flow()
     instance.balance_sheet()
