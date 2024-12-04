@@ -47,7 +47,7 @@ def save_fig(fig, ticker, fig_name, base_dir=None):
     if dap.get_ticker_icb_code(ticker) == 8350:  # Bank
         save_dir = os.path.join(base_dir,'picture', 'Bank', ticker)
     else:
-        save_dir = os.path.join(base_dir,'picture', 'Normal_company', ticker)
+        save_dir = os.path.join(base_dir,'picture', 'Test', ticker)
     print(save_dir)
     os.makedirs(save_dir, exist_ok=True)
     fig.write_html(os.path.join(save_dir, fig_name))
@@ -62,7 +62,7 @@ class CompanyVisualization:
         df = dap.get_cash_flow(self.ticker)
         if df.empty:
             raise ValueError(f"No cash flow data available for {self.ticker}")
-        df = dap.recalculate_cash_flow()
+        df = dap.recalculate_cash_flow(df)
         dap.ttm(df)
         fig = go.Figure()
         fig.add_trace(go.Bar(x=df.index, y=df['operating_cash_flow'], 
@@ -158,12 +158,7 @@ class CompanyVisualization:
         income_statement = dap.get_income_statement(self.ticker)
         if income_statement.empty:
             raise ValueError(f"No income statement data available for {self.ticker}")
-        
-        # prediction_income_statement = Predict(self.ticker).predict_income_statement()
 
-        income_statement['operation_expense_on_gross_profit'] = (
-            income_statement['operation_expense'] / -income_statement['gross_profit']
-        ).replace([np.inf, -np.inf], np.nan)
 
         fig = make_subplots(rows=2, cols=1, subplot_titles=('Doanh thu & Lợi nhuận', 'Lợi nhuận gộp & Chi phí hoạt động'),
                             vertical_spacing=0.15, specs=[[{}], [{"secondary_y": True}]])
@@ -174,11 +169,6 @@ class CompanyVisualization:
         fig.add_trace(go.Bar(name='Cost of goods sold', x=income_statement.index,
                              y=-income_statement['cost_of_good_sold'], marker_color='rgba(208, 21, 21, 0.5)'),
                       row=1, col=1)
-        # fig.add_trace(go.Bar(name='Revenue', x=prediction_income_statement.index, y=prediction_income_statement['revenue'],
-        #                      marker_color='rgba(0, 141, 0, 0.6)'), row=1, col=1)
-        # fig.add_trace(go.Bar(name='Cost of goods sold', x=prediction_income_statement.index,
-        #                      y=-prediction_income_statement['cost_of_good_sold'], marker_color='rgba(208, 21, 21, 0.3)'),
-        #               row=1, col=1)
 
         # Subplot 2: Lợi nhuận gộp & Chi phí hoạt động
         fig.add_trace(go.Bar(x=income_statement.index, y=income_statement['gross_profit'],
@@ -188,15 +178,9 @@ class CompanyVisualization:
         fig.add_trace(go.Scatter(name='Operation Profit', x=income_statement.index,
                                  y=income_statement['operation_profit'], line=dict(width=2),
                                  marker_color='yellow', mode='lines+markers'), row=2, col=1, secondary_y=True)
-        # fig.add_trace(go.Bar(x=prediction_income_statement.index, y=prediction_income_statement['gross_profit'],
-        #                      name="Lợi nhuận gộp", marker_color='rgba(0, 141, 0, 0.6)'), row=2, col=1)
-        # fig.add_trace(go.Bar(x=prediction_income_statement.index, y=-prediction_income_statement['operation_expense'],
-        #                      name="Chi phí hoạt động", marker_color='rgba(208, 21, 21, 0.3)'), row=2, col=1)
-        # fig.add_trace(go.Scatter(name='Operation Profit', x=prediction_income_statement.index,
-        #                          y=prediction_income_statement['operation_profit'], line=dict(width=2),
-        #                          marker_color='yellow'), row=2, col=1, secondary_y=True)
-
-
+        fig.add_trace(go.Scatter(name='Profit after tax', x=income_statement.index,
+                                 y=income_statement['share_holder_income'], line=dict(width=2),
+                                 marker_color='purple', mode='lines+markers'), row=2, col=1, secondary_y=True)
 
         title = f'Doanh thu, Lợi nhuận & Chi phí - {self.ticker}'
         update_layout_dark(fig, title, yaxis4_title='Value', yaxis3_title='Value')
@@ -204,7 +188,46 @@ class CompanyVisualization:
         fig_name = "revenue_profit_and_expense.html"
         save_fig(fig, self.ticker, fig_name)
 
-        #fig.show()
+        fig.show()
+    def profit_and_expense_plot_year(self):
+        """
+        Vẽ đồ thị doanh thu, lợi nhuận gộp, chi phí hoạt động và lợi nhuận hoạt động theo năm trên 2 subplot.
+        """
+        income_statement = dap.get_income_statement(self.ticker, period='year')
+        if income_statement.empty:
+            raise ValueError(f"No income statement data available for {self.ticker}")
+
+        fig = make_subplots(rows=2, cols=1, subplot_titles=('Doanh thu & Lợi nhuận', 'Lợi nhuận gộp & Chi phí hoạt động'),
+                            vertical_spacing=0.15, specs=[[{}], [{"secondary_y": True}]])
+
+        # Subplot 1: Doanh thu & Lợi nhuận
+        fig.add_trace(go.Bar(name='Revenue', x=income_statement.index, y=income_statement['revenue'],
+                             marker_color='rgba(0, 141, 0, 1)'), row=1, col=1)
+        fig.add_trace(go.Bar(name='Cost of goods sold', x=income_statement.index,
+                             y=-income_statement['cost_of_good_sold'], marker_color='rgba(208, 21, 21, 0.5)'),
+                      row=1, col=1)
+
+        # Subplot 2: Lợi nhuận gộp & Chi phí hoạt động
+        fig.add_trace(go.Bar(x=income_statement.index, y=income_statement['gross_profit'],
+                             name="Lợi nhuận gộp", marker_color='rgba(0, 141, 0, 1)'), row=2, col=1)
+        fig.add_trace(go.Bar(x=income_statement.index, y=-income_statement['operation_expense'],
+                             name="Chi phí hoạt động", marker_color='rgba(208, 21, 21, 0.5)'), row=2, col=1)
+        fig.add_trace(go.Scatter(name='Operation Profit', x=income_statement.index,
+                                 y=income_statement['operation_profit'], line=dict(width=2),
+                                 marker_color='yellow', mode='lines+markers'), row=2, col=1, secondary_y=True)
+        fig.add_trace(go.Scatter(name='Profit after tax', x=income_statement.index,
+                                 y=income_statement['share_holder_income'], line=dict(width=2),
+                                 marker_color='purple', mode='lines+markers'), row=2, col=1, secondary_y=True)
+
+        title = f'Doanh thu, Lợi nhuận & Chi phí - {self.ticker}'
+        update_layout_dark(fig, title, yaxis4_title='Value', yaxis3_title='Value')
+
+        fig_name = "revenue_profit_and_expense_yealy.html"
+        save_fig(fig, self.ticker, fig_name)
+
+        fig.show()
+
+    
 
 
 class Comparision:
@@ -573,6 +596,7 @@ def plot_all_bank(ticker):
     instance2.company_roe_roa_comparison()
     instance2.company_vs_industry_pe_pb()
     instance2.equity_ratios_comparison()
+    print(f'done {ticker}............')
 
 
 def plot_all_normal_company(ticker):
@@ -587,5 +611,9 @@ def plot_all_normal_company(ticker):
     instance2.equity_ratios_comparison()
     instance2.profit_margins_comparison()
     instance2.days_inventory_and_days_payable()
+    print(f'done {ticker}............')
 
+def temp(ticker):
+    instance = CompanyVisualization(ticker)
+    instance.profit_and_expense_plot_year()
 

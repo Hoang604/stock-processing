@@ -5,10 +5,55 @@ import vnstock3
 from time import sleep 
 import time
 import os
+import webbrowser
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import r2_score
 from dateutil.relativedelta import relativedelta
 
+
+def get_all_subdirectories(dir):
+    """Trả về danh sách tên của tất cả các thư mục con trong thư mục được chỉ định.
+
+    Args:
+        dir: Đường dẫn đến thư mục cần lấy danh sách thư mục con.
+
+    Returns:
+        Một list chứa tên của tất cả các thư mục con.
+    """
+    try:
+        return [ten for ten in os.listdir(dir) if os.path.isdir(os.path.join(dir, ten))]
+    except FileNotFoundError:
+        print(f"Error: Not found '{dir}'")
+        return []
+
+def run_all_html_files(subdir_path):
+    """Chạy tất cả các file .html trong thư mục con được chỉ định."""
+    try:
+        for filename in os.listdir(subdir_path):
+            if filename.endswith(".html"):
+                filepath = os.path.abspath(os.path.join(subdir_path, filename)) # Make path absolute
+                webbrowser.open_new_tab(f"file://{filepath}")
+    except FileNotFoundError:
+        print(f"Thư mục '{subdir_path}' không tồn tại.")
+
+
+def run_specific_html_file(subdir_path, filename="revenue_profit_and_expense.html"):
+    """Chạy một file .html cụ thể trong thư mục con được chỉ định.
+       Mặc định là file revenue_profit_and_expense.html.
+    """
+    filepath = os.path.abspath(os.path.join(subdir_path, filename))
+    try:
+        webbrowser.open_new_tab(f"file://{filepath}")
+    except FileNotFoundError:
+        print(f"File '{filepath}' không tồn tại.")
+
+
+def get_company_overview(symbol):
+    try:
+        df = vnstock3.Company(symbol).overview()
+        return df
+    except:
+        return pd.DataFrame()
 
 def get_income_statement(symbol, period='quarter'):
     """Trả về income statement của symbol, mặc định là theo quý"""
@@ -48,7 +93,6 @@ def get_cash_flow(symbol, period='quarter'):
         return pd.DataFrame()
 
 def recalculate_cash_flow(df):
-    print(df)
     """Chuẩn hóa tên gọi của các cột trong cash flow"""
     df.rename(columns={'invest_cost': 'capEx',
                        'from_invest': 'investing_cash_flow',
@@ -105,7 +149,7 @@ def get_company_ratio(stock_code):
     Trả về DataFrame chứa dữ liệu về ratio của stock code theo từng quý
     """
     try:
-        sleep(1)
+        sleep(0.5)
         ratio_df = vnstock3.Finance(stock_code).ratio()
         # Chỉnh sửa cột index lại thành kiểu datetime
         ratio_df.index = pd.to_datetime(ratio_df['year'].astype(str) + '-' +
@@ -175,7 +219,10 @@ def get_ticker_icb_code(ticker):
         print(f"Error processing {ticker}: {e}")
         return 0
     all_tickers['icb_code3'] = all_tickers['icb_code3'].astype(int)
-    ticker_icb_code = all_tickers.loc[all_tickers['symbol'] == ticker, 'icb_code3'].values[0]
+    try:
+        ticker_icb_code = all_tickers.loc[all_tickers['symbol'] == ticker, 'icb_code3'].values[0]
+    except Exception:
+        raise ValueError(f"Không có dữ liệu cho mã {ticker}")
     return ticker_icb_code
 
 def get_industry_tickers(icb_code):
@@ -214,14 +261,14 @@ def quarterly_company_market_capital(stock_symbol):
         DataFrame chứa vốn hóa theo từng quý của mã cổ phiếu
     """
     start_day = str(datetime.datetime((datetime.date.today() - relativedelta(years=10)).year,1,1).date())
-    time.sleep(1)
+    time.sleep(0.5)
     stock_price_df = get_stock_price(stock_symbol, start_day)
     if stock_price_df.empty:
         return stock_price_df
     stock_price_df.index = pd.to_datetime(stock_price_df.index)
     stock_price_df = stock_price_df.set_index('time')
     stock_price_df = stock_price_df.resample('QE').last()
-    time.sleep(1)
+    time.sleep(0.5)
     try: 
         df = vnstock3.Company(stock_symbol).overview()
         outstanding_share = df['outstanding_share'].iloc[0]
@@ -494,55 +541,110 @@ def get_ratio(symbol):
     industry_ratio = read_industry_average_ratio(symbol)
     return ticker_ratio, industry_ratio
 
-def coefficient_and_r_squared_of_operation_profit(income_statement):
+def linear_regression_parameter(income_statement, outlier_threshold=3):  # Add threshold parameter
+    """
+    Calculates the coefficient and R-squared of a linear regression on 'operation_profit'.
+
+    Args:
+        income_statement (pd.DataFrame): DataFrame with 'operation_profit' column.
+        outlier_threshold (float, optional): The threshold for outlier removal using Z-score. Defaults to 3.
+
+    Returns:
+        tuple: Coefficient and R-squared of the linear regression.
+    """
     # Convert index to ordinal values for regression
     X = np.array(range(len(income_statement))).reshape(-1, 1)
-    y = income_statement['operation_profit'].values.reshape(-1, 1)
+    y = income_statement['revenue'].values.reshape(-1, 1)
 
     # Handle NaN values
     nan_mask = np.isnan(y)
     X = X[~nan_mask.flatten()]
     y = y[~nan_mask.flatten()]
 
-    # Rescale y to a maximum of 1000
-    max_y = np.max(y)
-    if max_y != 0:  # Check for max_y = 0 to avoid ZeroDivisionError
-        y = (y / max_y) * 1000
+    # Outlier Removal using Z-score
+    z = np.abs((y - np.mean(y)) / np.std(y))
+    X = X[z.flatten() < outlier_threshold]
+    y = y[z.flatten() < outlier_threshold]
+
+
+    # Rescale y (only if there are data points left after outlier removal)
+    if len(y) > 0:
+        max_y = np.max(y)
+        if max_y != 0:  # Check for max_y = 0 to avoid ZeroDivisionError
+            y = (y / max_y) * 1000
+        else:
+            print("The maximum 'operation_profit' is 0.  Cannot rescale.")
+
+        # Create and fit the linear regression model
+        model = LinearRegression()
+        model.fit(X, y)
+
+         # Get the coefficient and R-squared
+        coefficient = model.coef_[0][0]
+        y_pred = model.predict(X)
+        r_squared = r2_score(y, y_pred)
+        return coefficient, r_squared
     else:
-        print("The maximum 'operation_profit' is 0.  Cannot rescale.")
-
-    # Create and fit the linear regression model
-    model = LinearRegression()
-    model.fit(X, y)
-
-    # Get the coefficient and R-squared
-    coefficient = model.coef_[0][0]
-    r_squared = r2_score(y, model.predict(X))
-    return coefficient, r_squared
+        print("No data points left after outlier removal.")
+        return np.nan, np.nan  # Return NaN values if no data left
 
 def find_stock_code():
     industry_tickers = vnstock3.Vnstock(show_log=False).stock('ACB', source='TCBS').listing.symbols_by_industries()
     industry_tickers = industry_tickers['symbol']
+    bank_tickers = ['ABB', 'ACB', 'BAB', 'BID', 'BVB', 'CTG', 'EIB', 'HDB', 'KLB', 'LPB', 'MBB', 'MSB', 'NAB', 'NVB',
+                    'OCB', 'PGB', 'SGB', 'SHB', 'SSB', 'STB', 'TCB', 'TPB', 'VAB', 'VBB', 'VCB', 'VIB', 'VPB']
+    industry_tickers = [ticker for ticker in industry_tickers if ticker not in bank_tickers]
     tickers = []
     print('lenth:', len(industry_tickers))
     i = 1
     for tic in industry_tickers:
         print(f"{i}:{tic}")
         i+=1
-        sleep(1)
-        df = get_income_statement(tic)
-        if df.empty:
+        sleep(0.5)
+        df = get_income_statement(tic).tail(20)
+        if df.empty or len(df) < 20:
             continue
         try:
-            c, r = coefficient_and_r_squared_of_operation_profit(df)
+            c, r = linear_regression_parameter(df)
         except Exception:
             continue
-        if c > 8 and r > 0.5:
+        if c > 11:
             tickers.append(tic)
     return tickers
 
+def predict_future_yeild(pe, grow_rate):
+    table = {'year': [], 'yield': [], 'pe': [], 'grow_rate': []}
+    x = grow_rate / 100 + 1
+    for year in range(6):
+        table['pe'].append(pe)
+        table['grow_rate'].append(round(grow_rate, 2))
+        table['year'].append(year + datetime.date.today().year)
+        table['yield'].append(round(pow(x, year) / pe, 3) * 100)
+    df = pd.DataFrame(data=table)
+    return df
+
+def predict_future_yeild_all(tickers):
+    df = pd.DataFrame(columns=['ticker', 'pe', 'grow_rate', 'year', 'yield'])
+    for ticker in tickers:
+        grow_rate = get_income_statement(ticker, period='year').year_share_holder_income_growth.tail(3).mean() * 100
+        pe = get_company_ratio(ticker).price_to_earning.iloc[-1]
+        yeild_df = predict_future_yeild(pe, grow_rate).dropna()
+        yeild_df['ticker'] = ticker
+        df = pd.concat([df, yeild_df])
+    df.set_index(['ticker', 'year'], inplace=True)
+    df['2029_yield'] = df.xs(2029, level='year', drop_level=False)['yield']
+    df = df.reset_index()  # Chuyển MultiIndex thành cột để dễ thao tác
+    df['sort_key'] = df.groupby('ticker')['2029_yield'].transform('max')  # Tìm max yield năm 2029 cho mỗi ticker
+    df = df.sort_values(by=['sort_key', 'ticker', 'year'], ascending=[False, True, True])  # Sắp xếp
+    df = df.drop(columns=['2029_yield', 'sort_key']).set_index(['ticker', 'pe', 'grow_rate', 'year'])
+    return df
+
+
 if __name__ == '__main__':
-    tickers = find_stock_code()
-    print(tickers)
+    pd.set_option('display.max_rows', None)
+    tickers = get_all_subdirectories('picture/Normal_company')
+    x = predict_future_yeild_all(tickers)
+    print(x)
+
 
         
