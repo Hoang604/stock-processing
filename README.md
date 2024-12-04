@@ -1,4 +1,4 @@
-#Stock processing and visualization
+#  Stock processing and visualization
 
 The file data_acquisition_and_processing.py is used for clone data (using [vnstock3 library](https://vnstocks.com/)), calculate industry average metrics, filter stock, and predict future returns.
 
