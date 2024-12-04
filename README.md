@@ -23,7 +23,7 @@ The file visualization.py is used to visualize company financial statements, inc
 
 ```python
 # Example 
-from visualization import plot_all_normal_company, CompanyVisualization
+from visualization import plot_all_for_company, CompanyVisualization
 
 x = CopanyVisualization('FPT')
 x.profit_and_expense_plot()
