@@ -3,7 +3,6 @@ import data_acquisition_and_processing as dap
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import os
-from predict import Predict
 
 def update_layout_dark(fig, title, yaxis_title="Value", yaxis2_title=None, yaxis3_title=None, yaxis4_title=None, barmode='group'):
     """Cập nhật layout cho biểu đồ với theme tối, hỗ trợ cả subplot và single plot."""
@@ -94,21 +93,13 @@ class CompanyVisualization:
                             specs=[[{"secondary_y": True}], [{"secondary_y": True}]])
         
         # Vẽ biểu đồ tài sản và nợ gắn hạn
-        # Lịch sử
         fig.add_trace(go.Bar(x=balance_sheet.index, y=balance_sheet['short_asset'], name='Tài sản ngắn hạn',
                                 marker_color='rgba(0, 141, 0, 1)'), row=1, col=1, secondary_y=False)
         
         fig.add_trace(go.Bar(x=balance_sheet.index, y=balance_sheet['short_debt'], name='Nợ ngắn hạn',
                                 marker_color='rgba(208, 21, 21, 0.4)'), row=1, col=1, secondary_y=False)
-        # Dự đoán tương lai
-        # fig.add_trace(go.Bar(x=prediction_balance_sheet.index, y=prediction_balance_sheet['short_asset'], name='Dự đoán tài sản ngắn hạn',
-        #                         marker_color='rgba(0, 141, 0, 0.6)'), row=1, col=1, secondary_y=False)
-        
-        # fig.add_trace(go.Bar(x=prediction_balance_sheet.index, y=prediction_balance_sheet['short_debt'], name='Dự đoán nợ ngắn hạn',
-        #                         marker_color='rgba(208, 21, 21, 0.3)'), row=1, col=1, secondary_y=False)
 
         # Vẽ biểu đồ tài sản và nợ tổng thể
-        # Lịch sử
         fig.add_trace(go.Bar(x=balance_sheet.index, y=balance_sheet['asset'], name='Tổng tài sản',
                                 marker_color='rgba(0, 141, 0, 1)'), row=2, col=1, secondary_y=False)
         
@@ -117,16 +108,6 @@ class CompanyVisualization:
         
         fig.add_trace(go.Scatter(x=balance_sheet.index, y=balance_sheet['equity'], name='Vốn chủ sở hữu',
                                 line=dict(color='#ff9800', width=3), mode='lines+markers'), row=2, col=1, secondary_y=True)
-        # Dự đoán tương lai
-        # fig.add_trace(go.Bar(x=prediction_balance_sheet.index, y=prediction_balance_sheet['asset'], name='Dự đoán tổng tài sản',
-        #                         marker_color='rgba(0, 141, 0, 0.6)'), row=2, col=1, secondary_y=False)
-        
-        # fig.add_trace(go.Bar(x=prediction_balance_sheet.index, y=prediction_balance_sheet['debt'], name='Dự đoán tổng nợ',
-        #                         marker_color='rgba(208, 21, 21, 0.3)'), row=2, col=1, secondary_y=False)
-        
-        # fig.add_trace(go.Scatter(x=prediction_balance_sheet.index, y=prediction_balance_sheet['equity'], name='Dự đoán vốn chủ sở hữu',
-        #                         line=dict(color='#ff9800', width=3)), row=2, col=1, secondary_y=True)
-        
 
 
         fig.add_hline(y=1, line_dash="dash", line_color="gray", opacity=0.5, row=1, col=1)
