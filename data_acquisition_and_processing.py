@@ -58,40 +58,106 @@ def get_company_overview(symbol):
         return pd.DataFrame()
 
 def get_income_statement(symbol, period='quarter'):
-    """Trả về income statement của symbol, mặc định là theo quý"""
+    """
+    Retrieve income statement data for a given symbol.
+    
+    Parameters:
+    -----------
+    symbol : str
+        The stock symbol to fetch data for
+    period : str, optional
+        Data period - 'quarter' or 'annual' (default: 'quarter')
+        
+    Returns:
+    --------
+    pandas.DataFrame
+        DataFrame containing income statement data with datetime index,
+        or empty DataFrame if an error occurs
+    """
     try:
-        df = vnstock.Finance(source='tcbs',  symbol=symbol).income_statement(period=period)
+        df = vnstock.Finance(source='tcbs', symbol=symbol).income_statement(period=period)
+        if df.empty:
+            return pd.DataFrame()
+            
+        # Determine frequency based on period
+        freq = 'Q' if period == 'quarter' else 'Y'
+        
+        # Convert to proper datetime index and clean
         df.sort_index(ascending=True, inplace=True)
-        df.index = pd.PeriodIndex(df.index, freq='Q').to_timestamp('Q')
+        df.index = pd.PeriodIndex(df.index, freq=freq).to_timestamp(freq)
         df = df[~df.index.duplicated(keep="last")]
         return df
     except Exception as e:
-        print(f"Error occur when fetch {symbol} income statement: {e}")
+        print(f"Error occurred when fetching {symbol} income statement: {e}")
         return pd.DataFrame()
 
 
 def get_balance_sheet(symbol, period='quarter'):
-    """Trả về balance sheet của symbol, mặc định là theo quý"""
+    """
+    Retrieve balance sheet data for a given symbol.
+    
+    Parameters:
+    -----------
+    symbol : str
+        The stock symbol to fetch data for
+    period : str, optional
+        Data period - 'quarter' or 'annual' (default: 'quarter')
+        
+    Returns:
+    --------
+    pandas.DataFrame
+        DataFrame containing balance sheet data with datetime index,
+        or empty DataFrame if an error occurs
+    """
     try:
-        df = vnstock.Finance(source='tcbs',  symbol=symbol).balance_sheet(period=period)
+        df = vnstock.Finance(source='tcbs', symbol=symbol).balance_sheet(period=period)
+        if df.empty:
+            return pd.DataFrame()
+            
+        # Determine frequency based on period
+        freq = 'Q' if period == 'quarter' else 'Y'
+        
+        # Convert to proper datetime index and clean
         df.sort_index(ascending=True, inplace=True)
-        df.index = pd.PeriodIndex(df.index, freq='Q').to_timestamp('Q')
+        df.index = pd.PeriodIndex(df.index, freq=freq).to_timestamp(freq)
         df = df[~df.index.duplicated(keep="last")]
         return df
     except Exception as e:
-        print(f"Error occur when fetch {symbol} balance sheet: {e}")
+        print(f"Error occurred when fetching {symbol} balance sheet: {e}")
         return pd.DataFrame()
 
 def get_cash_flow(symbol, period='quarter'):
-    """Trả về cash flow của symbol, mặc định là theo quý"""
+    """
+    Retrieve cash flow statement data for a given symbol.
+    
+    Parameters:
+    -----------
+    symbol : str
+        The stock symbol to fetch data for
+    period : str, optional
+        Data period - 'quarter' or 'annual' (default: 'quarter')
+        
+    Returns:
+    --------
+    pandas.DataFrame
+        DataFrame containing cash flow data with datetime index,
+        or empty DataFrame if an error occurs
+    """
     try:
-        df = vnstock.Finance(source='tcbs',  symbol=symbol).cash_flow(period=period)
+        df = vnstock.Finance(source='tcbs', symbol=symbol).cash_flow(period=period)
+        if df.empty:
+            return pd.DataFrame()
+            
+        # Determine frequency based on period
+        freq = 'Q' if period == 'quarter' else 'Y'
+        
+        # Convert to proper datetime index and clean
         df.sort_index(ascending=True, inplace=True)
-        df.index = pd.PeriodIndex(df.index, freq='Q').to_timestamp('Q')
+        df.index = pd.PeriodIndex(df.index, freq=freq).to_timestamp(freq)
         df = df[~df.index.duplicated(keep="last")]
         return df
     except Exception as e:
-        print(f"Error occur when fetch {symbol} cash flow statement: {e}")
+        print(f"Error occurred when fetching {symbol} cash flow statement: {e}")
         return pd.DataFrame()
 
 def recalculate_cash_flow(df):
@@ -148,25 +214,88 @@ def last_day_in_quarter(year, quarter):
 
 def get_company_ratio(stock_code):
     """
-    Trả về DataFrame chứa dữ liệu về ratio của stock code theo từng quý
+    Retrieve quarterly financial ratios for a given stock code.
+    
+    Parameters:
+    -----------
+    stock_code : str
+        The stock symbol to fetch ratios for
+        
+    Returns:
+    --------
+    pandas.DataFrame
+        DataFrame containing quarterly financial ratios with datetime index,
+        or empty DataFrame if an error occurs
     """
     try:
-        sleep(0.5)
+        sleep(0.5)  # Rate limiting to avoid API throttling
         ratio_df = vnstock.Finance(source='tcbs', symbol=stock_code).ratio()
-        # Chỉnh sửa cột index lại thành kiểu datetime
-        ratio_df.index = pd.to_datetime(ratio_df['year'].astype(str) + '-' +
-                                        ratio_df['quarter'].astype(str).map({'1':'03','2':'06','3':'09','4':'12'}) + 
-                                        '-01') + pd.tseries.offsets.QuarterEnd(0)
-
-        # Loại bỏ các cột không cần thiết
+        
+        if ratio_df.empty:
+            return pd.DataFrame()
+        
+        # Convert year/quarter columns to proper datetime index
+        ratio_df.index = _create_quarter_end_datetime(ratio_df['year'], ratio_df['quarter'])
+        
+        # Clean up the dataframe
         ratio_df = ratio_df.drop(['quarter', 'year'], axis=1)
-        ratio_df.fillna(0.000000000000001, inplace=True)
-        ratio_df.sort_index(ascending=True, inplace=True)
-        ratio_df = ratio_df[~ratio_df.index.duplicated(keep="last")]
+        ratio_df = _clean_financial_dataframe(ratio_df)
+        
         return ratio_df
     except Exception as e:
-        print(f"Error whent fetch company ratio {stock_code}: {e}")
+        print(f"Error when fetching company ratio for {stock_code}: {e}")
         return pd.DataFrame()
+
+
+def _create_quarter_end_datetime(years, quarters):
+    """
+    Create quarter-end datetime index from year and quarter columns.
+    
+    Parameters:
+    -----------
+    years : pandas.Series
+        Series containing years
+    quarters : pandas.Series  
+        Series containing quarters (1-4)
+        
+    Returns:
+    --------
+    pandas.DatetimeIndex
+        DatetimeIndex with quarter-end dates
+    """
+    # Mapping quarters to their end months
+    quarter_end_months = {'1': '03', '2': '06', '3': '09', '4': '12'}
+    
+    # Create date strings and convert to datetime
+    date_strings = (years.astype(str) + '-' + 
+                   quarters.astype(str).map(quarter_end_months) + 
+                   '-01')
+    
+    return pd.to_datetime(date_strings) + pd.tseries.offsets.QuarterEnd(0)
+
+
+def _clean_financial_dataframe(df):
+    """
+    Clean financial dataframe by handling missing values, sorting, and removing duplicates.
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        DataFrame to clean
+        
+    Returns:
+    --------
+    pandas.DataFrame
+        Cleaned DataFrame
+    """
+    # Fill NaN values with a very small number instead of 0 to avoid division issues
+    df.fillna(1e-15, inplace=True)
+    
+    # Sort by date and remove duplicates
+    df.sort_index(ascending=True, inplace=True)
+    df = df[~df.index.duplicated(keep="last")]
+    
+    return df
 
 import pickle
 
@@ -649,10 +778,7 @@ def predict_future_yeild_all(tickers):
 
 
 if __name__ == '__main__':
-    pd.set_option('display.max_rows', None)
-    tickers = get_all_subdirectories('picture/Normal_company')
-    x = predict_future_yeild_all(tickers)
-    print(x)
+    read_industry_average_ratio('FPT')
 
 
         

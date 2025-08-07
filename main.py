@@ -1,8 +1,7 @@
-from visualization import *
-from data_acquisition_and_processing import *
-import pandas as pd
+from visualization.financial_charts import FinancialCharts, BankFinancialCharts
 
-pd.set_option('display.max_rows', None)
+ticker = 'HPG'
 
-if __name__ == '__main__':
-    plot_all_for_company('FPT')
+charts = FinancialCharts(ticker)
+charts.income_statement_chart(period='year')
+charts.income_statement_chart()
