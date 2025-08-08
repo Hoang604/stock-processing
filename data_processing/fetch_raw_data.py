@@ -6,10 +6,10 @@ import os
 import pickle
 
 class DataFetcher:
-    def __init__(self, stock_code):
+    def __init__(self, stock_code, source='tcbs'):
         self.stock_code = stock_code
-        self.company = vnstock.Company(source='tcbs', symbol=stock_code)
-        self.finance = vnstock.Finance(source='tcbs', symbol=stock_code)
+        self.company = vnstock.Company(source=source, symbol=stock_code)
+        self.finance = vnstock.Finance(source=source, symbol=stock_code)
         self.stock = vnstock.Vnstock(show_log=False).stock(source='vci', symbol=stock_code)
 
     def fetch_company_overview(self):
